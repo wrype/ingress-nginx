@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
@@ -32,6 +33,12 @@ const (
 	DefaultIngressDeploymentName = "ingress-nginx-controller"
 	DefaultIngressServiceName    = "ingress-nginx-controller"
 	DefaultIngressContainerName  = ""
+)
+
+var (
+	DefaultIngressSelector = labels.Set(map[string]string{
+		"app.kubernetes.io/name": "ingress-nginx",
+	}).String()
 )
 
 // IssuePrefix is the github url that we can append an issue number to to link to it
@@ -124,7 +131,7 @@ func AddDeploymentFlag(cmd *cobra.Command) *string {
 // AddSelectorFlag adds a --selector flag to a cobra command
 func AddSelectorFlag(cmd *cobra.Command) *string {
 	v := ""
-	cmd.Flags().StringVarP(&v, "selector", "l", "", "Selector (label query) of the ingress-nginx pod")
+	cmd.Flags().StringVarP(&v, "selector", "l", DefaultIngressSelector, "Selector (label query) of the ingress-nginx pod")
 	return &v
 }
 
