@@ -29,9 +29,11 @@ import (
 	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	discoveryv1client "k8s.io/client-go/kubernetes/typed/discovery/v1"
-	typednetworking "k8s.io/client-go/kubernetes/typed/networking/v1"
 
 	"k8s.io/ingress-nginx/cmd/plugin/util"
+
+	v1beta1 "k8s.io/api/networking/v1beta1"
+	k8sclient "k8s.io/client-go/kubernetes"
 )
 
 // ChoosePod finds a pod either by deployment or by name
@@ -112,23 +114,29 @@ func GetDeployments(flags *genericclioptions.ConfigFlags, namespace string) ([]a
 }
 
 // GetIngressDefinitions returns an array of Ingress resource definitions
-func GetIngressDefinitions(flags *genericclioptions.ConfigFlags, namespace string) ([]networking.Ingress, error) {
+func GetIngressDefinitions(flags *genericclioptions.ConfigFlags, namespace string) (interface{}, error) {
 	rawConfig, err := flags.ToRESTConfig()
 	if err != nil {
 		return make([]networking.Ingress, 0), err
 	}
 
-	api, err := typednetworking.NewForConfig(rawConfig)
+	client, err := k8sclient.NewForConfig(rawConfig)
 	if err != nil {
 		return make([]networking.Ingress, 0), err
 	}
 
-	pods, err := api.Ingresses(namespace).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return make([]networking.Ingress, 0), err
+	// refer to https://github.com/kubernetes/kubectl/blob/197123726db24c61aa0f78d1f0ba6e91a2ec2f35/pkg/describe/describe.go#L2546
+	// try ingress/v1 first (v1.19) and fallback to ingress/v1beta if an err occurs
+	ingressesv1, err := client.NetworkingV1().Ingresses(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		return ingressesv1.Items, nil
 	}
 
-	return pods.Items, nil
+	ingressesv1beta1, err := client.NetworkingV1beta1().Ingresses(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return make([]v1beta1.Ingress, 0), err
+	}
+	return ingressesv1beta1.Items, nil
 }
 
 // GetNumEndpoints counts the number of endpointslices adresses for the service with the given name

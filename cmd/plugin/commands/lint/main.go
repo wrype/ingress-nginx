@@ -22,10 +22,11 @@ import (
 	"github.com/spf13/cobra"
 
 	appsv1 "k8s.io/api/apps/v1"
-	networking "k8s.io/api/networking/v1"
 	kmeta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
+	networking "k8s.io/api/networking/v1"
+	v1beta1 "k8s.io/api/networking/v1beta1"
 	"k8s.io/ingress-nginx/cmd/plugin/lints"
 	"k8s.io/ingress-nginx/cmd/plugin/request"
 	"k8s.io/ingress-nginx/cmd/plugin/util"
@@ -177,8 +178,25 @@ func checkObjectArray(lints []lint, objects []kmeta.Object, opts lintOptions) {
 	}
 }
 
+func ingressList2metaObj(ingresses interface{}) []kmeta.Object {
+	objects := make([]kmeta.Object, 0)
+	switch ings := ingresses.(type) {
+	case []networking.Ingress:
+		for i := range ings {
+			objects = append(objects, &ings[i])
+		}
+	case []v1beta1.Ingress:
+		for i := range ings {
+			objects = append(objects, &ings[i])
+		}
+	default:
+		panic("unknown type of ingresses")
+	}
+	return objects
+}
+
 func ingresses(opts lintOptions) error {
-	var ings []networking.Ingress
+	var ings interface{}
 	var err error
 	if opts.allNamespaces {
 		ings, err = request.GetIngressDefinitions(opts.flags, "")
@@ -195,12 +213,7 @@ func ingresses(opts lintOptions) error {
 		genericLints[i] = iLints[i]
 	}
 
-	objects := make([]kmeta.Object, 0)
-	for i := range ings {
-		objects = append(objects, &ings[i])
-	}
-
-	checkObjectArray(genericLints, objects, opts)
+	checkObjectArray(genericLints, ingressList2metaObj(ings), opts)
 	return nil
 }
 

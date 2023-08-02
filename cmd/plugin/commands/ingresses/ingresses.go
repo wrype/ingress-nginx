@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
+	v1beta1 "k8s.io/api/networking/v1beta1"
 	"k8s.io/ingress-nginx/cmd/plugin/request"
 	"k8s.io/ingress-nginx/cmd/plugin/util"
 )
@@ -70,7 +71,13 @@ func ingresses(flags *genericclioptions.ConfigFlags, host string, allNamespaces 
 		return err
 	}
 
-	rows := getIngressRows(&ingresses)
+	var rows []ingressRow
+	switch ing := ingresses.(type) {
+	case []networking.Ingress:
+		rows = getIngressRowsV1(&ing)
+	case []v1beta1.Ingress:
+		rows = getIngressRowsV1beta1(&ing)
+	}
 
 	if host != "" {
 		rowsWithHost := make([]ingressRow, 0)
@@ -131,7 +138,95 @@ type ingressRow struct {
 	NumEndpoints string
 }
 
-func getIngressRows(ingresses *[]networking.Ingress) []ingressRow {
+func getIngressRowsV1beta1(ingresses *[]v1beta1.Ingress) []ingressRow {
+	rows := make([]ingressRow, 0)
+
+	for _, ing := range *ingresses {
+
+		address := ""
+		for _, lbIng := range ing.Status.LoadBalancer.Ingress {
+			if len(lbIng.IP) > 0 {
+				address = address + lbIng.IP + ","
+			}
+			if len(lbIng.Hostname) > 0 {
+				address = address + lbIng.Hostname + ","
+			}
+		}
+		if len(address) > 0 {
+			address = address[:len(address)-1]
+		}
+
+		tlsHosts := make(map[string]struct{})
+		for _, tls := range ing.Spec.TLS {
+			for _, host := range tls.Hosts {
+				tlsHosts[host] = struct{}{}
+			}
+		}
+
+		defaultBackendService := ""
+		defaultBackendPort := ""
+		if backend := ing.Spec.Backend; backend != nil {
+			name, port := backend.ServiceName, backend.ServicePort
+			defaultBackendService = name
+			defaultBackendPort = port.String()
+		}
+
+		// Handle catch-all ingress
+		if len(ing.Spec.Rules) == 0 && len(defaultBackendService) > 0 {
+			row := ingressRow{
+				Namespace:   ing.Namespace,
+				IngressName: ing.Name,
+				Host:        "*",
+				ServiceName: defaultBackendService,
+				ServicePort: defaultBackendPort,
+				Address:     address,
+			}
+
+			rows = append(rows, row)
+			continue
+		}
+
+		for _, rule := range ing.Spec.Rules {
+			_, hasTLS := tlsHosts[rule.Host]
+
+			//Handle ingress with no paths
+			if rule.HTTP == nil {
+				row := ingressRow{
+					Namespace:   ing.Namespace,
+					IngressName: ing.Name,
+					Host:        rule.Host,
+					Path:        "",
+					TLS:         hasTLS,
+					ServiceName: defaultBackendService,
+					ServicePort: defaultBackendPort,
+					Address:     address,
+				}
+				rows = append(rows, row)
+				continue
+			}
+
+			for _, path := range rule.HTTP.Paths {
+				svcName, svcPort := path.Backend.ServiceName, path.Backend.ServicePort
+				row := ingressRow{
+					Namespace:   ing.Namespace,
+					IngressName: ing.Name,
+					Host:        rule.Host,
+					Path:        path.Path,
+					TLS:         hasTLS,
+					ServiceName: svcName,
+					ServicePort: svcPort.String(),
+					Address:     address,
+				}
+
+				rows = append(rows, row)
+			}
+		}
+	}
+
+	return rows
+}
+
+func getIngressRowsV1(ingresses *[]networking.Ingress) []ingressRow {
 	rows := make([]ingressRow, 0)
 
 	for _, ing := range *ingresses {
