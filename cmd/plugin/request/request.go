@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
@@ -130,38 +131,57 @@ func GetNumEndpoints(flags *genericclioptions.ConfigFlags, namespace string, ser
 
 	ret := 0
 	for _, eps := range epss {
-		for _, ep := range eps.Endpoints {
-			ret += len(ep.Addresses)
+		switch eps := eps.(type) {
+		case discoveryv1.EndpointSlice:
+			for _, ep := range eps.Endpoints {
+				ret += len(ep.Addresses)
+			}
+		case discoveryv1beta1.EndpointSlice:
+			for _, ep := range eps.Endpoints {
+				ret += len(ep.Addresses)
+			}
+		default:
+			panic("unknown type of element in epss")
 		}
 	}
 	return &ret, nil
 }
 
 // GetEndpointSlicesByName returns the endpointSlices for the service with the given name
-func GetEndpointSlicesByName(flags *genericclioptions.ConfigFlags, namespace string, name string) ([]discoveryv1.EndpointSlice, error) {
+func GetEndpointSlicesByName(flags *genericclioptions.ConfigFlags, namespace string, name string) ([]interface{}, error) {
 	allEndpointsSlices, err := getEndpointSlices(flags, namespace)
 	if err != nil {
 		return nil, err
 	}
-	var eps []discoveryv1.EndpointSlice
+	var eps []interface{}
 	for _, slice := range allEndpointsSlices {
-		if svcName, ok := slice.ObjectMeta.GetLabels()[discoveryv1.LabelServiceName]; ok {
-			if svcName == name {
-				eps = append(eps, slice)
+		switch elem := slice.(type) {
+		case discoveryv1.EndpointSlice:
+			if svcName, ok := elem.ObjectMeta.GetLabels()[discoveryv1.LabelServiceName]; ok {
+				if svcName == name {
+					eps = append(eps, slice)
+				}
 			}
+		case discoveryv1beta1.EndpointSlice:
+			if svcName, ok := elem.ObjectMeta.GetLabels()[discoveryv1beta1.LabelServiceName]; ok {
+				if svcName == name {
+					eps = append(eps, slice)
+				}
+			}
+		default:
+			panic("unknown type of element in allEndpointsSlices")
 		}
 	}
-
 	return eps, nil
 }
 
-var endpointSlicesCache = make(map[string]*[]discoveryv1.EndpointSlice)
+var endpointSlicesCache = make(map[string][]interface{})
 
-func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) ([]discoveryv1.EndpointSlice, error) {
+func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) ([]interface{}, error) {
 	cachedEndpointSlices, ok := endpointSlicesCache[namespace]
 
 	if ok {
-		return *cachedEndpointSlices, nil
+		return cachedEndpointSlices, nil
 	}
 
 	if namespace != "" {
@@ -171,18 +191,32 @@ func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (
 	cachedEndpointSlices = tryFilteringEndpointSlicesFromAllNamespacesCache(flags, namespace)
 
 	if cachedEndpointSlices != nil {
-		return *cachedEndpointSlices, nil
+		return cachedEndpointSlices, nil
 	}
 
 	client := k8sclient.GlobalClient(flags)
-	endpointSlicesList, err := client.DiscoveryV1().EndpointSlices(namespace).List(context.TODO(), metav1.ListOptions{})
+	epsListV1, err := client.DiscoveryV1().EndpointSlices(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		epsV1 := epsListV1.Items
+		var buffer []interface{}
+		for _, elem := range epsV1 {
+			buffer = append(buffer, elem)
+		}
+		endpointSlicesCache[namespace] = buffer
+		return buffer, nil
+	}
+
+	epsListV1beta1, err := client.DiscoveryV1beta1().EndpointSlices(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	endpointSlices := endpointSlicesList.Items
-
-	endpointSlicesCache[namespace] = &endpointSlices
-	return endpointSlices, nil
+	epsV1beta1 := epsListV1beta1.Items
+	var buffer []interface{}
+	for _, elem := range epsV1beta1 {
+		buffer = append(buffer, elem)
+	}
+	endpointSlicesCache[namespace] = buffer
+	return buffer, nil
 }
 
 func tryAllNamespacesEndpointSlicesCache(flags *genericclioptions.ConfigFlags) {
@@ -195,19 +229,29 @@ func tryAllNamespacesEndpointSlicesCache(flags *genericclioptions.ConfigFlags) {
 	}
 }
 
-func tryFilteringEndpointSlicesFromAllNamespacesCache(flags *genericclioptions.ConfigFlags, namespace string) *[]discoveryv1.EndpointSlice {
+func tryFilteringEndpointSlicesFromAllNamespacesCache(flags *genericclioptions.ConfigFlags, namespace string) []interface{} {
 	allEndpointSlices := endpointSlicesCache[""]
-	if allEndpointSlices != nil {
-		endpointSlices := make([]discoveryv1.EndpointSlice, 0)
-		for _, slice := range *allEndpointSlices {
-			if slice.Namespace == namespace {
+	if allEndpointSlices == nil {
+		return nil
+	}
+	var endpointSlices []interface{}
+	for _, slice := range allEndpointSlices {
+		switch elem := slice.(type) {
+		case discoveryv1.EndpointSlice:
+			if elem.Namespace == namespace {
 				endpointSlices = append(endpointSlices, slice)
 			}
+		case discoveryv1beta1.EndpointSlice:
+			if elem.Namespace == namespace {
+				endpointSlices = append(endpointSlices, slice)
+			}
+		default:
+			panic("unknown type of element in allEndpointSlices")
 		}
-		endpointSlicesCache[namespace] = &endpointSlices
-		return &endpointSlices
 	}
-	return nil
+
+	endpointSlicesCache[namespace] = endpointSlices
+	return endpointSlices
 }
 
 // GetServiceByName finds and returns the service definition with the given name
