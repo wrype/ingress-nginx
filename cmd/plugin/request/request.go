@@ -31,6 +31,7 @@ import (
 	"k8s.io/ingress-nginx/cmd/plugin/util"
 
 	v1beta1 "k8s.io/api/networking/v1beta1"
+	"k8s.io/apimachinery/pkg/api/errors"
 )
 
 // ChoosePod finds a pod either by deployment or by name
@@ -176,8 +177,13 @@ func GetEndpointSlicesByName(flags *genericclioptions.ConfigFlags, namespace str
 }
 
 var endpointSlicesCache = make(map[string][]interface{})
+var hasNoEndpointslicesApi bool
 
 func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) ([]interface{}, error) {
+	if hasNoEndpointslicesApi {
+		return nil, nil
+	}
+
 	cachedEndpointSlices, ok := endpointSlicesCache[namespace]
 
 	if ok {
@@ -208,6 +214,11 @@ func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (
 
 	epsListV1beta1, err := client.DiscoveryV1beta1().EndpointSlices(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			fmt.Println(err)
+			hasNoEndpointslicesApi = true
+			return nil, nil
+		}
 		return nil, err
 	}
 	epsV1beta1 := epsListV1beta1.Items
