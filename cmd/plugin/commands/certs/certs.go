@@ -17,9 +17,12 @@ limitations under the License.
 package certs
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 
+	"github.com/grantae/certinfo"
 	"github.com/spf13/cobra"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -40,8 +43,12 @@ func CreateCommand(flags *genericclioptions.ConfigFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			pretty, err := cmd.Flags().GetBool("pretty")
+			if err != nil {
+				return err
+			}
 
-			util.PrintError(certs(flags, *pod, *deployment, *selector, *container, host))
+			util.PrintError(certs(flags, *pod, *deployment, *selector, *container, host, pretty))
 			return nil
 		},
 	}
@@ -55,11 +62,11 @@ func CreateCommand(flags *genericclioptions.ConfigFlags) *cobra.Command {
 	deployment = util.AddDeploymentFlag(cmd)
 	selector = util.AddSelectorFlag(cmd)
 	container = util.AddContainerFlag(cmd)
-
+	cmd.Flags().Bool("pretty", false, "Pretty print certificates")
 	return cmd
 }
 
-func certs(flags *genericclioptions.ConfigFlags, podName string, deployment string, selector string, container string, host string) error {
+func certs(flags *genericclioptions.ConfigFlags, podName string, deployment string, selector string, container string, host string, prettyPrint bool) error {
 	command := []string{"/dbg", "certs", "get", host}
 
 	pod, err := request.ChoosePod(flags, podName, deployment, selector)
@@ -71,7 +78,38 @@ func certs(flags *genericclioptions.ConfigFlags, podName string, deployment stri
 	if err != nil {
 		return err
 	}
-
-	fmt.Print(out)
+	if prettyPrint {
+		prettyPrintPemBlocks([]byte(out))
+	} else {
+		fmt.Print(out)
+	}
 	return nil
+}
+
+func prettyPrintPemBlocks(pemBlocks []byte) {
+	var demBlock *pem.Block
+	for {
+		demBlock, pemBlocks = pem.Decode(pemBlocks)
+		if demBlock == nil {
+			break
+		}
+		switch demBlock.Type {
+		case "CERTIFICATE":
+			cert, err := x509.ParseCertificate(demBlock.Bytes)
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			info, err := certinfo.CertificateText(cert)
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			fmt.Println("-----BEGIN CERTIFICATE-----")
+			fmt.Print(info)
+			fmt.Println("-----END CERTIFICATE-----")
+		default:
+			fmt.Printf("skip %s\n", demBlock.Type)
+		}
+	}
 }
