@@ -132,54 +132,79 @@ func GetNumEndpoints(flags *genericclioptions.ConfigFlags, namespace string, ser
 
 	ret := 0
 	for _, eps := range epss {
-		switch eps := eps.(type) {
-		case discoveryv1.EndpointSlice:
-			for _, ep := range eps.Endpoints {
-				ret += len(ep.Addresses)
-			}
-		case discoveryv1beta1.EndpointSlice:
-			for _, ep := range eps.Endpoints {
-				ret += len(ep.Addresses)
-			}
-		default:
-			panic("unknown type of element in epss")
+		for _, ep := range eps.Endpoints {
+			ret += len(ep.Addresses)
 		}
 	}
 	return &ret, nil
 }
 
 // GetEndpointSlicesByName returns the endpointSlices for the service with the given name
-func GetEndpointSlicesByName(flags *genericclioptions.ConfigFlags, namespace string, name string) ([]interface{}, error) {
+func GetEndpointSlicesByName(flags *genericclioptions.ConfigFlags, namespace string, name string) (endpointSlicesAdapter, error) {
 	allEndpointsSlices, err := getEndpointSlices(flags, namespace)
 	if err != nil {
 		return nil, err
 	}
-	var eps []interface{}
+	var eps endpointSlicesAdapter
 	for _, slice := range allEndpointsSlices {
-		switch elem := slice.(type) {
-		case discoveryv1.EndpointSlice:
-			if svcName, ok := elem.ObjectMeta.GetLabels()[discoveryv1.LabelServiceName]; ok {
-				if svcName == name {
-					eps = append(eps, slice)
-				}
+		if svcName, ok := slice.ObjectMeta.GetLabels()[discoveryv1.LabelServiceName]; ok {
+			if svcName == name {
+				eps = append(eps, slice)
 			}
-		case discoveryv1beta1.EndpointSlice:
-			if svcName, ok := elem.ObjectMeta.GetLabels()[discoveryv1beta1.LabelServiceName]; ok {
-				if svcName == name {
-					eps = append(eps, slice)
-				}
-			}
-		default:
-			panic("unknown type of element in allEndpointsSlices")
 		}
 	}
 	return eps, nil
 }
 
-var endpointSlicesCache = make(map[string][]interface{})
+var endpointSlicesCache = make(map[string]endpointSlicesAdapter)
 var hasNoEndpointslicesApi bool
 
-func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) ([]interface{}, error) {
+type endpoint struct {
+	Addresses []string
+}
+
+type endpointSlice struct {
+	metav1.ObjectMeta
+	Endpoints []endpoint
+}
+
+type endpointSlicesAdapter []endpointSlice
+
+func epssAdapterFromDiscoveryV1(epss []discoveryv1.EndpointSlice) endpointSlicesAdapter {
+	var ret endpointSlicesAdapter
+	for _, eps := range epss {
+		var epList []endpoint
+		for _, ep := range eps.Endpoints {
+			epList = append(epList, endpoint{
+				Addresses: ep.Addresses,
+			})
+		}
+		ret = append(ret, endpointSlice{
+			ObjectMeta: eps.ObjectMeta,
+			Endpoints:  epList,
+		})
+	}
+	return ret
+}
+
+func epssAdapterFromDiscoveryV1beta1(epss []discoveryv1beta1.EndpointSlice) endpointSlicesAdapter {
+	var ret endpointSlicesAdapter
+	for _, eps := range epss {
+		var epList []endpoint
+		for _, ep := range eps.Endpoints {
+			epList = append(epList, endpoint{
+				Addresses: ep.Addresses,
+			})
+		}
+		ret = append(ret, endpointSlice{
+			ObjectMeta: eps.ObjectMeta,
+			Endpoints:  epList,
+		})
+	}
+	return ret
+}
+
+func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (endpointSlicesAdapter, error) {
 	if hasNoEndpointslicesApi {
 		return nil, nil
 	}
@@ -203,13 +228,9 @@ func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (
 	client := k8sclient.GlobalClient(flags)
 	epsListV1, err := client.DiscoveryV1().EndpointSlices(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
-		epsV1 := epsListV1.Items
-		var buffer []interface{}
-		for _, elem := range epsV1 {
-			buffer = append(buffer, elem)
-		}
-		endpointSlicesCache[namespace] = buffer
-		return buffer, nil
+		epsV1 := epssAdapterFromDiscoveryV1(epsListV1.Items)
+		endpointSlicesCache[namespace] = epsV1
+		return epsV1, nil
 	}
 
 	epsListV1beta1, err := client.DiscoveryV1beta1().EndpointSlices(namespace).List(context.TODO(), metav1.ListOptions{})
@@ -221,13 +242,9 @@ func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (
 		}
 		return nil, err
 	}
-	epsV1beta1 := epsListV1beta1.Items
-	var buffer []interface{}
-	for _, elem := range epsV1beta1 {
-		buffer = append(buffer, elem)
-	}
-	endpointSlicesCache[namespace] = buffer
-	return buffer, nil
+	epsV1beta1 := epssAdapterFromDiscoveryV1beta1(epsListV1beta1.Items)
+	endpointSlicesCache[namespace] = epsV1beta1
+	return epsV1beta1, nil
 }
 
 func tryAllNamespacesEndpointSlicesCache(flags *genericclioptions.ConfigFlags) {
@@ -240,27 +257,17 @@ func tryAllNamespacesEndpointSlicesCache(flags *genericclioptions.ConfigFlags) {
 	}
 }
 
-func tryFilteringEndpointSlicesFromAllNamespacesCache(flags *genericclioptions.ConfigFlags, namespace string) []interface{} {
+func tryFilteringEndpointSlicesFromAllNamespacesCache(flags *genericclioptions.ConfigFlags, namespace string) endpointSlicesAdapter {
 	allEndpointSlices := endpointSlicesCache[""]
 	if allEndpointSlices == nil {
 		return nil
 	}
-	var endpointSlices []interface{}
+	var endpointSlices endpointSlicesAdapter
 	for _, slice := range allEndpointSlices {
-		switch elem := slice.(type) {
-		case discoveryv1.EndpointSlice:
-			if elem.Namespace == namespace {
-				endpointSlices = append(endpointSlices, slice)
-			}
-		case discoveryv1beta1.EndpointSlice:
-			if elem.Namespace == namespace {
-				endpointSlices = append(endpointSlices, slice)
-			}
-		default:
-			panic("unknown type of element in allEndpointSlices")
+		if slice.Namespace == namespace {
+			endpointSlices = append(endpointSlices, slice)
 		}
 	}
-
 	endpointSlicesCache[namespace] = endpointSlices
 	return endpointSlices
 }
