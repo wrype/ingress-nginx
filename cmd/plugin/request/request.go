@@ -206,6 +206,7 @@ func epssAdapterFromDiscoveryV1beta1(epss []discoveryv1beta1.EndpointSlice) endp
 
 func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (endpointSlicesAdapter, error) {
 	if hasNoEndpointslicesApi {
+		// skip get endpoints when no Endpointslices api, but can display other info
 		return nil, nil
 	}
 
@@ -237,7 +238,7 @@ func getEndpointSlices(flags *genericclioptions.ConfigFlags, namespace string) (
 	if err != nil {
 		if errors.IsNotFound(err) {
 			fmt.Println(err)
-			hasNoEndpointslicesApi = true
+			hasNoEndpointslicesApi = true // no Endpointslices resource on k8s 1.14
 			return nil, nil
 		}
 		return nil, err
