@@ -29,6 +29,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/ingress-nginx/cmd/plugin/commands/backends"
+	"k8s.io/ingress-nginx/cmd/plugin/commands/browser"
 	"k8s.io/ingress-nginx/cmd/plugin/commands/certs"
 	"k8s.io/ingress-nginx/cmd/plugin/commands/conf"
 	"k8s.io/ingress-nginx/cmd/plugin/commands/exec"
@@ -60,6 +61,7 @@ func main() {
 	rootCmd.AddCommand(exec.CreateCommand(flags))
 	rootCmd.AddCommand(ssh.CreateCommand(flags))
 	rootCmd.AddCommand(lint.CreateCommand(flags))
+	rootCmd.AddCommand(browser.CreateCommand(flags))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

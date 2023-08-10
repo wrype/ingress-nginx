@@ -53,7 +53,7 @@ func CreateCommand(flags *genericclioptions.ConfigFlags) *cobra.Command {
 	return cmd
 }
 
-func ingresses(flags *genericclioptions.ConfigFlags, host string, allNamespaces bool) error {
+func GetIngressRow(flags *genericclioptions.ConfigFlags, allNamespaces bool) ([]ingressRow, error) {
 	var namespace string
 	if allNamespaces {
 		namespace = ""
@@ -63,7 +63,7 @@ func ingresses(flags *genericclioptions.ConfigFlags, host string, allNamespaces 
 
 	ingresses, err := request.GetIngressDefinitions(flags, namespace)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var rows []ingressRow
@@ -72,6 +72,14 @@ func ingresses(flags *genericclioptions.ConfigFlags, host string, allNamespaces 
 		rows = getIngressRowsV1(&ing)
 	case []v1beta1.Ingress:
 		rows = getIngressRowsV1beta1(&ing)
+	}
+	return rows, nil
+}
+
+func ingresses(flags *genericclioptions.ConfigFlags, host string, allNamespaces bool) error {
+	rows, err := GetIngressRow(flags, allNamespaces)
+	if err != nil {
+		return err
 	}
 
 	if host != "" {
