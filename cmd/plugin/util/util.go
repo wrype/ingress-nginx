@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
@@ -35,11 +36,15 @@ const (
 	DefaultIngressContainerName  = ""
 )
 
-var (
-	DefaultIngressSelector = labels.Set(map[string]string{
+var DefaultIngressSelector string
+
+func init() {
+	selector, _ := labels.ValidatedSelectorFromSet(labels.Set(map[string]string{
 		"app.kubernetes.io/name": "ingress-nginx",
-	}).String()
-)
+	}))
+	instFilter, _ := labels.NewRequirement("app.kubernetes.io/component", selection.NotEquals, []string{"default-backend"})
+	DefaultIngressSelector = selector.Add(*instFilter).String()
+}
 
 // IssuePrefix is the github url that we can append an issue number to to link to it
 const IssuePrefix = "https://github.com/kubernetes/ingress-nginx/issues/"
@@ -151,9 +156,14 @@ func AddServiceFlag(cmd *cobra.Command) *string {
 
 // GetNamespace takes a set of kubectl flag values and returns the namespace we should be operating in
 func GetNamespace(flags *genericclioptions.ConfigFlags) string {
-	namespace, _, err := flags.ToRawKubeConfigLoader().Namespace()
+	ns, _ := GetNamespaceWithArgOverrides(flags)
+	return ns
+}
+
+func GetNamespaceWithArgOverrides(flags *genericclioptions.ConfigFlags) (string, bool) {
+	namespace, overrides, err := flags.ToRawKubeConfigLoader().Namespace()
 	if err != nil || len(namespace) == 0 {
 		namespace = apiv1.NamespaceDefault
 	}
-	return namespace
+	return namespace, overrides
 }

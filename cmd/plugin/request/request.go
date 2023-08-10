@@ -304,7 +304,11 @@ func getPods(flags *genericclioptions.ConfigFlags) ([]apiv1.Pod, error) {
 }
 
 func getLabeledPods(flags *genericclioptions.ConfigFlags, label string) ([]apiv1.Pod, error) {
-	namespace := util.GetNamespace(flags)
+	namespace, overrides := util.GetNamespaceWithArgOverrides(flags)
+	if !overrides {
+		//! if not specify `-n` arg, scan all ns
+		namespace = ""
+	}
 	client := k8sclient.GlobalClient(flags)
 	pods, err := client.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: label,
