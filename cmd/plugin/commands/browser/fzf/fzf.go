@@ -17,18 +17,7 @@ import (
 const (
 	// EnvFZFIgnore describes the environment variable to set to disable
 	// interactive context selection when fzf is installed.
-	envFZFIgnore = "KUBECTX_IGNORE_FZF"
-
-	// EnvForceColor describes the environment variable to disable color usage
-	// when printing current context in a list.
-	envNoColor = `NO_COLOR`
-
-	// EnvForceColor describes the "internal" environment variable to force
-	// color usage to show current context in a list.
-	envForceColor = `_KUBECTX_FORCE_COLOR`
-
-	// EnvDebug describes the internal environment variable for more verbose logging.
-	envDebug = `DEBUG`
+	envFZFIgnore = "INGRESS_IGNORE_FZF"
 
 	fzfExeName = "fzf"
 )
@@ -57,8 +46,7 @@ func FzfRun(stderr io.Writer) error {
 	cmd.Stderr = stderr
 	cmd.Stdout = &out
 	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("FZF_DEFAULT_COMMAND=%s", strings.Join(os.Args, " ")),
-		fmt.Sprintf("%s=1", envForceColor))
+		fmt.Sprintf("FZF_DEFAULT_COMMAND=%s", strings.Join(os.Args, " ")))
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
 			return err
