@@ -34,7 +34,11 @@ func CreateCommand(flags *genericclioptions.ConfigFlags) *cobra.Command {
 }
 
 func browser(flags *genericclioptions.ConfigFlags, host string, allNamespaces bool) error {
-	k8sclient.GlobalClient(flags) // try to see if there're any errors
+	// try to see if there're any errors
+	_, err := k8sclient.GlobalClient(flags).ServerVersion()
+	if err != nil {
+		return err
+	}
 	if fzf.IsInteractiveMode(os.Stdout) {
 		return fzf.FzfRun(color.Error)
 	}
