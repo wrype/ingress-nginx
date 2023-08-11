@@ -42,6 +42,7 @@ func init() {
 	selector, _ := labels.ValidatedSelectorFromSet(labels.Set(map[string]string{
 		"app.kubernetes.io/name": "ingress-nginx",
 	}))
+	// exclude the `defaultbackend` pod
 	instFilter, _ := labels.NewRequirement("app.kubernetes.io/component", selection.NotEquals, []string{"default-backend"})
 	DefaultIngressSelector = selector.Add(*instFilter).String()
 }
