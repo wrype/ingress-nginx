@@ -304,9 +304,11 @@ func getPods(flags *genericclioptions.ConfigFlags) ([]apiv1.Pod, error) {
 }
 
 func getLabeledPods(flags *genericclioptions.ConfigFlags, label string) ([]apiv1.Pod, error) {
-	namespace, overrides := util.GetNamespaceWithArgOverrides(flags)
-	if !overrides {
-		//! if not specify `-n` arg, scan all ns
+	namespace, provideArgNs := util.GetNamespaceWithArgOverrides(flags)
+	if !provideArgNs {
+		// the `namespace` arguement may read from kubeconfig
+		// to use plugin more conveniently, if not specify `-n` arguement, scan all namespaces
+		// specify `-n` arguement, can be more efficient to find controller pod
 		namespace = ""
 	}
 	client := k8sclient.GlobalClient(flags)
